@@ -3,7 +3,7 @@
 //  ---------------------------------------------------------------------------
 
 const Exchange = require ('./base/Exchange');
-const { ExchangeError } = require ('./base/errors');
+const { ExchangeError, ArgumentsRequired } = require ('./base/errors');
 
 //  ---------------------------------------------------------------------------
 
@@ -12,7 +12,7 @@ module.exports = class btctradeua extends Exchange {
         return this.deepExtend (super.describe (), {
             'id': 'btctradeua',
             'name': 'BTC Trade UA',
-            'countries': 'UA', // Ukraine,
+            'countries': [ 'UA' ], // Ukraine,
             'rateLimit': 3000,
             'has': {
                 'CORS': true,
@@ -84,8 +84,8 @@ module.exports = class btctradeua extends Exchange {
         });
     }
 
-    signIn () {
-        return this.privatePostAuth ();
+    async signIn (params = {}) {
+        return await this.privatePostAuth (params);
     }
 
     async fetchBalance (params = {}) {
@@ -163,13 +163,13 @@ module.exports = class btctradeua extends Exchange {
             let start = Math.max (tickerLength - 48, 0);
             for (let t = start; t < ticker.length; t++) {
                 let candle = ticker[t];
-                if (typeof result['open'] === 'undefined')
+                if (result['open'] === undefined)
                     result['open'] = candle[1];
-                if ((typeof result['high'] === 'undefined') || (result['high'] < candle[2]))
+                if ((result['high'] === undefined) || (result['high'] < candle[2]))
                     result['high'] = candle[2];
-                if ((typeof result['low'] === 'undefined') || (result['low'] > candle[3]))
+                if ((result['low'] === undefined) || (result['low'] > candle[3]))
                     result['low'] = candle[3];
-                if (typeof result['baseVolume'] === 'undefined')
+                if (result['baseVolume'] === undefined)
                     result['baseVolume'] = -candle[5];
                 else
                     result['baseVolume'] -= candle[5];
@@ -242,8 +242,8 @@ module.exports = class btctradeua extends Exchange {
             'symbol': market['symbol'],
             'type': 'limit',
             'side': trade['type'],
-            'price': parseFloat (trade['price']),
-            'amount': parseFloat (trade['amnt_trade']),
+            'price': this.safeFloat (trade, 'price'),
+            'amount': this.safeFloat (trade, 'amnt_trade'),
         };
     }
 
@@ -287,6 +287,7 @@ module.exports = class btctradeua extends Exchange {
             'id': trade['id'],
             'timestamp': timestamp, // until they fix their timestamp
             'datetime': this.iso8601 (timestamp),
+            'lastTradeTimestamp': undefined,
             'status': 'open',
             'symbol': market['symbol'],
             'type': undefined,
@@ -301,8 +302,8 @@ module.exports = class btctradeua extends Exchange {
     }
 
     async fetchOpenOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
-        if (!symbol)
-            throw new ExchangeError (this.id + ' fetchOpenOrders requires a symbol param');
+        if (symbol === undefined)
+            throw new ArgumentsRequired (this.id + ' fetchOpenOrders requires a symbol argument');
         let market = this.market (symbol);
         let response = await this.privatePostMyOrdersSymbol (this.extend ({
             'symbol': market['id'],

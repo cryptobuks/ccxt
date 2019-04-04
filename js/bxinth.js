@@ -12,7 +12,7 @@ module.exports = class bxinth extends Exchange {
         return this.deepExtend (super.describe (), {
             'id': 'bxinth',
             'name': 'BX.in.th',
-            'countries': 'TH', // Thailand
+            'countries': [ 'TH' ], // Thailand
             'rateLimit': 1500,
             'has': {
                 'CORS': false,
@@ -75,23 +75,27 @@ module.exports = class bxinth extends Exchange {
         });
     }
 
-    async fetchMarkets () {
+    async fetchMarkets (params = {}) {
         let markets = await this.publicGetPairing ();
         let keys = Object.keys (markets);
         let result = [];
         for (let p = 0; p < keys.length; p++) {
             let market = markets[keys[p]];
             let id = market['pairing_id'].toString ();
-            let base = market['secondary_currency'];
-            let quote = market['primary_currency'];
-            base = this.commonCurrencyCode (base);
-            quote = this.commonCurrencyCode (quote);
+            let baseId = market['secondary_currency'];
+            let quoteId = market['primary_currency'];
+            let active = market['active'];
+            let base = this.commonCurrencyCode (baseId);
+            let quote = this.commonCurrencyCode (quoteId);
             let symbol = base + '/' + quote;
             result.push ({
                 'id': id,
                 'symbol': symbol,
                 'base': base,
                 'quote': quote,
+                'baseId': baseId,
+                'quoteId': quoteId,
+                'active': active,
                 'info': market,
             });
         }
@@ -131,7 +135,7 @@ module.exports = class bxinth extends Exchange {
         let symbol = undefined;
         if (market)
             symbol = market['symbol'];
-        let last = parseFloat (ticker['last_price']);
+        let last = this.safeFloat (ticker, 'last_price');
         return {
             'symbol': symbol,
             'timestamp': timestamp,
@@ -147,10 +151,10 @@ module.exports = class bxinth extends Exchange {
             'close': last,
             'last': last,
             'previousClose': undefined,
-            'change': parseFloat (ticker['change']),
+            'change': this.safeFloat (ticker, 'change'),
             'percentage': undefined,
             'average': undefined,
-            'baseVolume': parseFloat (ticker['volume_24hours']),
+            'baseVolume': this.safeFloat (ticker, 'volume_24hours'),
             'quoteVolume': undefined,
             'info': ticker,
         };
@@ -183,7 +187,7 @@ module.exports = class bxinth extends Exchange {
     }
 
     parseTrade (trade, market) {
-        let timestamp = this.parse8601 (trade['trade_date']);
+        let timestamp = this.parse8601 (trade['trade_date'] + '+07:00'); // Thailand UTC+7 offset
         return {
             'id': trade['trade_id'],
             'info': trade,
@@ -193,8 +197,8 @@ module.exports = class bxinth extends Exchange {
             'symbol': market['symbol'],
             'type': undefined,
             'side': trade['trade_type'],
-            'price': parseFloat (trade['rate']),
-            'amount': parseFloat (trade['amount']),
+            'price': this.safeFloat (trade, 'rate'),
+            'amount': this.safeFloat (trade, 'amount'),
         };
     }
 
@@ -233,13 +237,13 @@ module.exports = class bxinth extends Exchange {
     async parseOrder (order, market = undefined) {
         let side = this.safeString (order, 'order_type');
         let symbol = undefined;
-        if (typeof market === 'undefined') {
+        if (market === undefined) {
             let marketId = this.safeString (order, 'pairing_id');
-            if (typeof marketId !== 'undefined')
+            if (marketId !== undefined)
                 if (marketId in this.markets_by_id)
                     market = this.markets_by_id[marketId];
         }
-        if (typeof market !== 'undefined')
+        if (market !== undefined)
             symbol = market['symbol'];
         let timestamp = this.parse8601 (order['date']);
         let price = this.safeFloat (order, 'rate');
@@ -259,14 +263,14 @@ module.exports = class bxinth extends Exchange {
 
     async fetchOpenOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
         await this.loadMarkets ();
-        let request = {};
+        const request = {};
         let market = undefined;
-        if (typeof symbol !== 'undefined') {
+        if (symbol !== undefined) {
             market = this.market (symbol);
             request['pairing'] = market['id'];
         }
-        let response = this.privatePostGetorders (this.extend (request, params));
-        let orders = this.parseOrders (response['orders'], market, since, limit);
+        const response = await this.privatePostGetorders (this.extend (request, params));
+        const orders = this.parseOrders (response['orders'], market, since, limit);
         return this.filterBySymbol (orders, symbol);
     }
 

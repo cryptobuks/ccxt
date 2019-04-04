@@ -4,7 +4,6 @@
 # https://github.com/ccxt/ccxt/blob/master/CONTRIBUTING.md#how-to-contribute-code
 
 from ccxt.base.exchange import Exchange
-import json
 from ccxt.base.errors import ExchangeError
 
 
@@ -22,7 +21,7 @@ class virwox (Exchange):
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/27766894-6da9d360-5eea-11e7-90aa-41f2711b7405.jpg',
                 'api': {
-                    'public': 'http://api.virwox.com/api/json.php',
+                    'public': 'https://api.virwox.com/api/json.php',
                     'private': 'https://www.virwox.com/api/trading.php',
                 },
                 'www': 'https://www.virwox.com',
@@ -82,7 +81,7 @@ class virwox (Exchange):
             },
         })
 
-    def fetch_markets(self):
+    def fetch_markets(self, params={}):
         markets = self.publicGetGetInstruments()
         keys = list(markets['result'].keys())
         result = []
@@ -157,27 +156,27 @@ class virwox (Exchange):
         lastKey = keys[length - 1]
         ticker = tickers[lastKey]
         timestamp = self.milliseconds()
-        close = float(ticker['close'])
+        close = self.safe_float(ticker, 'close')
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': float(ticker['high']),
-            'low': float(ticker['low']),
+            'high': self.safe_float(ticker, 'high'),
+            'low': self.safe_float(ticker, 'low'),
             'bid': None,
             'bidVolume': None,
             'ask': None,
             'askVolume': None,
             'vwap': None,
-            'open': float(ticker['open']),
+            'open': self.safe_float(ticker, 'open'),
             'close': close,
             'last': close,
             'previousClose': None,
             'change': None,
             'percentage': None,
             'average': None,
-            'baseVolume': float(ticker['longVolume']),
-            'quoteVolume': float(ticker['shortVolume']),
+            'baseVolume': self.safe_float(ticker, 'longVolume'),
+            'quoteVolume': self.safe_float(ticker, 'shortVolume'),
             'info': ticker,
         }
 
@@ -205,8 +204,8 @@ class virwox (Exchange):
             'instrument': symbol,
             'timespan': 3600,
         }, params))
-        result = response['result']
-        trades = result['data']
+        result = self.safe_value(response, 'result', {})
+        trades = self.safe_value(result, 'data', [])
         return self.parse_trades(trades, market)
 
     def create_order(self, symbol, type, side, amount, price=None, params={}):
@@ -253,10 +252,9 @@ class virwox (Exchange):
             })
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body):
+    def handle_errors(self, code, reason, url, method, headers, body, response):
         if code == 200:
             if (body[0] == '{') or (body[0] == '['):
-                response = json.loads(body)
                 if 'result' in response:
                     result = response['result']
                     if 'errorCode' in result:

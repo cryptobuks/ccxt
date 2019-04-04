@@ -72,13 +72,16 @@ class ccex (Exchange):
                 },
             },
             'commonCurrencies': {
-                'IOT': 'IoTcoin',
                 'BLC': 'Cryptobullcoin',
+                'CRC': 'CoreCoin',
+                'IOT': 'IoTcoin',
+                'LUX': 'Luxmi',
+                'VIT': 'VitalCoin',
                 'XID': 'InternationalDiamond',
             },
         })
 
-    def fetch_markets(self):
+    def fetch_markets(self, params={}):
         result = {}
         response = self.webGetPairs()
         markets = response['pairs']
@@ -152,22 +155,21 @@ class ccex (Exchange):
         self.load_markets()
         orderbooks = {}
         response = self.publicGetFullorderbook()
-        types = list(response['result'].keys())
-        for i in range(0, len(types)):
-            type = types[i]
-            bidasks = response['result'][type]
+        sides = list(response['result'].keys())
+        for i in range(0, len(sides)):
+            side = sides[i]
+            bidasks = response['result'][side]
             bidasksByMarketId = self.group_by(bidasks, 'Market')
             marketIds = list(bidasksByMarketId.keys())
             for j in range(0, len(marketIds)):
                 marketId = marketIds[j]
-                symbol = marketId.upper()
-                side = type
-                if symbol in self.markets_by_id:
+                symbol = marketId
+                if marketId in self.markets_by_id:
                     market = self.markets_by_id[symbol]
                     symbol = market['symbol']
                 else:
-                    base, quote = symbol.split('-')
-                    invertedId = quote + '-' + base
+                    baseId, quoteId = symbol.split('-')
+                    invertedId = quoteId + '-' + baseId
                     if invertedId in self.markets_by_id:
                         market = self.markets_by_id[invertedId]
                         symbol = market['symbol']
@@ -184,18 +186,18 @@ class ccex (Exchange):
     def parse_ticker(self, ticker, market=None):
         timestamp = ticker['updated'] * 1000
         symbol = None
-        if market:
+        if market is not None:
             symbol = market['symbol']
-        last = float(ticker['lastprice'])
+        last = self.safe_float(ticker, 'lastprice')
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': float(ticker['high']),
-            'low': float(ticker['low']),
-            'bid': float(ticker['buy']),
+            'high': self.safe_float(ticker, 'high'),
+            'low': self.safe_float(ticker, 'low'),
+            'bid': self.safe_float(ticker, 'buy'),
             'bidVolume': None,
-            'ask': float(ticker['sell']),
+            'ask': self.safe_float(ticker, 'sell'),
             'askVolume': None,
             'vwap': None,
             'open': None,
@@ -204,7 +206,7 @@ class ccex (Exchange):
             'previousClose': None,
             'change': None,
             'percentage': None,
-            'average': float(ticker['avg']),
+            'average': self.safe_float(ticker, 'avg'),
             'baseVolume': None,
             'quoteVolume': self.safe_float(ticker, 'buysupport'),
             'info': ticker,
@@ -213,18 +215,18 @@ class ccex (Exchange):
     def fetch_tickers(self, symbols=None, params={}):
         self.load_markets()
         tickers = self.webGetPrices(params)
-        result = {'info': tickers}
+        result = {}
         ids = list(tickers.keys())
         for i in range(0, len(ids)):
             id = ids[i]
             ticker = tickers[id]
-            uppercase = id.upper()
             market = None
             symbol = None
-            if uppercase in self.markets_by_id:
-                market = self.markets_by_id[uppercase]
+            if id in self.markets_by_id:
+                market = self.markets_by_id[id]
                 symbol = market['symbol']
             else:
+                uppercase = id.upper()
                 base, quote = uppercase.split('-')
                 base = self.common_currency_code(base)
                 quote = self.common_currency_code(quote)

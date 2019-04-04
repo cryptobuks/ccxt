@@ -12,7 +12,7 @@ module.exports = class flowbtc extends Exchange {
         return this.deepExtend (super.describe (), {
             'id': 'flowbtc',
             'name': 'flowBTC',
-            'countries': 'BR', // Brazil
+            'countries': [ 'BR' ], // Brazil
             'version': 'v1',
             'rateLimit': 1000,
             'has': {
@@ -22,7 +22,7 @@ module.exports = class flowbtc extends Exchange {
                 'logo': 'https://user-images.githubusercontent.com/1294454/28162465-cd815d4c-67cf-11e7-8e57-438bea0523a2.jpg',
                 'api': 'https://api.flowbtc.com:8405/ajax',
                 'www': 'https://trader.flowbtc.com',
-                'doc': 'http://www.flowbtc.com.br/api/',
+                'doc': 'https://www.flowbtc.com.br/api.html',
             },
             'requiredCredentials': {
                 'apiKey': true,
@@ -58,10 +58,18 @@ module.exports = class flowbtc extends Exchange {
                     ],
                 },
             },
+            'fees': {
+                'trading': {
+                    'tierBased': false,
+                    'percentage': true,
+                    'maker': 0.0035,
+                    'taker': 0.0035,
+                },
+            },
         });
     }
 
-    async fetchMarkets () {
+    async fetchMarkets (params = {}) {
         let response = await this.publicPostGetProductPairs ();
         let markets = response['productPairs'];
         let result = {};
@@ -70,12 +78,31 @@ module.exports = class flowbtc extends Exchange {
             let id = market['name'];
             let base = market['product1Label'];
             let quote = market['product2Label'];
+            let precision = {
+                'amount': this.safeInteger (market, 'product1DecimalPlaces'),
+                'price': this.safeInteger (market, 'product2DecimalPlaces'),
+            };
             let symbol = base + '/' + quote;
             result[symbol] = {
                 'id': id,
                 'symbol': symbol,
                 'base': base,
                 'quote': quote,
+                'precision': precision,
+                'limits': {
+                    'amount': {
+                        'min': undefined,
+                        'max': undefined,
+                    },
+                    'price': {
+                        'min': undefined,
+                        'max': undefined,
+                    },
+                    'cost': {
+                        'min': undefined,
+                        'max': undefined,
+                    },
+                },
                 'info': market,
             };
         }
@@ -117,16 +144,16 @@ module.exports = class flowbtc extends Exchange {
             'productPair': market['id'],
         }, params));
         let timestamp = this.milliseconds ();
-        let last = parseFloat (ticker['last']);
+        let last = this.safeFloat (ticker, 'last');
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
-            'high': parseFloat (ticker['high']),
-            'low': parseFloat (ticker['low']),
-            'bid': parseFloat (ticker['bid']),
+            'high': this.safeFloat (ticker, 'high'),
+            'low': this.safeFloat (ticker, 'low'),
+            'bid': this.safeFloat (ticker, 'bid'),
             'bidVolume': undefined,
-            'ask': parseFloat (ticker['ask']),
+            'ask': this.safeFloat (ticker, 'ask'),
             'askVolume': undefined,
             'vwap': undefined,
             'open': undefined,
@@ -136,8 +163,8 @@ module.exports = class flowbtc extends Exchange {
             'change': undefined,
             'percentage': undefined,
             'average': undefined,
-            'baseVolume': parseFloat (ticker['volume24hr']),
-            'quoteVolume': parseFloat (ticker['volume24hrProduct2']),
+            'baseVolume': this.safeFloat (ticker, 'volume24hr'),
+            'quoteVolume': this.safeFloat (ticker, 'volume24hrProduct2'),
             'info': ticker,
         };
     }
@@ -177,7 +204,7 @@ module.exports = class flowbtc extends Exchange {
             'side': side,
             'orderType': orderType,
             'qty': amount,
-            'px': price,
+            'px': this.priceToPrecision (symbol, price),
         };
         let response = await this.privatePostCreateOrder (this.extend (order, params));
         return {

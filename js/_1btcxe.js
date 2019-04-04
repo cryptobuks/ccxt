@@ -3,7 +3,7 @@
 //  ---------------------------------------------------------------------------
 
 const Exchange = require ('./base/Exchange');
-const { ExchangeError } = require ('./base/errors');
+const { ExchangeError, ExchangeNotAvailable } = require ('./base/errors');
 
 //  ---------------------------------------------------------------------------
 
@@ -12,7 +12,7 @@ module.exports = class _1btcxe extends Exchange {
         return this.deepExtend (super.describe (), {
             'id': '_1btcxe',
             'name': '1BTCXE',
-            'countries': 'PA', // Panama
+            'countries': [ 'PA' ], // Panama
             'comment': 'Crypto Capital API',
             'has': {
                 'CORS': true,
@@ -56,7 +56,7 @@ module.exports = class _1btcxe extends Exchange {
         });
     }
 
-    async fetchMarkets () {
+    async fetchMarkets (params = {}) {
         return [
             { 'id': 'USD', 'symbol': 'BTC/USD', 'base': 'BTC', 'quote': 'USD' },
             { 'id': 'EUR', 'symbol': 'BTC/EUR', 'base': 'BTC', 'quote': 'EUR' },
@@ -118,27 +118,27 @@ module.exports = class _1btcxe extends Exchange {
             'currency': this.marketId (symbol),
         }, params));
         let ticker = response['stats'];
-        let last = parseFloat (ticker['last_price']);
+        let last = this.safeFloat (ticker, 'last_price');
         return {
             'symbol': symbol,
             'timestamp': undefined,
             'datetime': undefined,
-            'high': parseFloat (ticker['max']),
-            'low': parseFloat (ticker['min']),
-            'bid': parseFloat (ticker['bid']),
+            'high': this.safeFloat (ticker, 'max'),
+            'low': this.safeFloat (ticker, 'min'),
+            'bid': this.safeFloat (ticker, 'bid'),
             'bidVolume': undefined,
-            'ask': parseFloat (ticker['ask']),
+            'ask': this.safeFloat (ticker, 'ask'),
             'askVolume': undefined,
             'vwap': undefined,
-            'open': parseFloat (ticker['open']),
+            'open': this.safeFloat (ticker, 'open'),
             'close': last,
             'last': last,
             'previousClose': undefined,
-            'change': parseFloat (ticker['daily_change']),
+            'change': this.safeFloat (ticker, 'daily_change'),
             'percentage': undefined,
             'average': undefined,
             'baseVolume': undefined,
-            'quoteVolume': parseFloat (ticker['total_btc_traded']),
+            'quoteVolume': this.safeFloat (ticker, 'total_btc_traded'),
             'info': ticker,
         };
     }
@@ -160,7 +160,7 @@ module.exports = class _1btcxe extends Exchange {
             'currency': market['id'],
             'timeframe': this.timeframes[timeframe],
         }, params));
-        let ohlcvs = this.omit (response['historical-prices'], 'request_currency');
+        let ohlcvs = this.toArray (this.omit (response['historical-prices'], 'request_currency'));
         return this.parseOHLCVs (ohlcvs, market, timeframe, since, limit);
     }
 
@@ -175,17 +175,21 @@ module.exports = class _1btcxe extends Exchange {
             'order': undefined,
             'type': undefined,
             'side': trade['maker_type'],
-            'price': parseFloat (trade['price']),
-            'amount': parseFloat (trade['amount']),
+            'price': this.safeFloat (trade, 'price'),
+            'amount': this.safeFloat (trade, 'amount'),
         };
     }
 
     async fetchTrades (symbol, since = undefined, limit = undefined, params = {}) {
         let market = this.market (symbol);
-        let response = await this.publicGetTransactions (this.extend ({
+        let request = {
             'currency': market['id'],
-        }, params));
-        let trades = this.omit (response['transactions'], 'request_currency');
+        };
+        if (limit !== undefined) {
+            request['limit'] = limit;
+        }
+        let response = await this.publicGetTransactions (this.extend (request, params));
+        let trades = this.toArray (this.omit (response['transactions'], 'request_currency'));
         return this.parseTrades (trades, market, since, limit);
     }
 
@@ -209,14 +213,16 @@ module.exports = class _1btcxe extends Exchange {
         return await this.privatePostOrdersCancel ({ 'id': id });
     }
 
-    async withdraw (currency, amount, address, tag = undefined, params = {}) {
+    async withdraw (code, amount, address, tag = undefined, params = {}) {
         this.checkAddress (address);
         await this.loadMarkets ();
-        let response = await this.privatePostWithdrawalsNew (this.extend ({
-            'currency': currency,
+        let currency = this.currency (code);
+        const request = {
+            'currency': currency['id'],
             'amount': parseFloat (amount),
             'address': address,
-        }, params));
+        };
+        let response = await this.privatePostWithdrawalsNew (this.extend (request, params));
         return {
             'info': response,
             'id': response['result']['uuid'],
@@ -246,6 +252,11 @@ module.exports = class _1btcxe extends Exchange {
 
     async request (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
         let response = await this.fetch2 (path, api, method, params, headers, body);
+        if (typeof response === 'string') {
+            if (response.indexOf ('Maintenance') >= 0) {
+                throw new ExchangeNotAvailable (this.id + ' on maintenance');
+            }
+        }
         if ('errors' in response) {
             let errors = [];
             for (let e = 0; e < response['errors'].length; e++) {

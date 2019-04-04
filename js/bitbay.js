@@ -12,7 +12,7 @@ module.exports = class bitbay extends Exchange {
         return this.deepExtend (super.describe (), {
             'id': 'bitbay',
             'name': 'BitBay',
-            'countries': [ 'PL', 'EU' ], // Poland
+            'countries': [ 'MT', 'EU' ], // Malta
             'rateLimit': 1000,
             'has': {
                 'CORS': true,
@@ -92,9 +92,9 @@ module.exports = class bitbay extends Exchange {
                 'XRP/EUR': { 'id': 'XRPEUR', 'symbol': 'XRP/EUR', 'base': 'XRP', 'quote': 'EUR', 'baseId': 'XRP', 'quoteId': 'EUR' },
                 'XRP/PLN': { 'id': 'XRPPLN', 'symbol': 'XRP/PLN', 'base': 'XRP', 'quote': 'PLN', 'baseId': 'XRP', 'quoteId': 'PLN' },
                 'XRP/BTC': { 'id': 'XRPBTC', 'symbol': 'XRP/BTC', 'base': 'XRP', 'quote': 'BTC', 'baseId': 'XRP', 'quoteId': 'BTC' },
-                'XIN/USD': { 'id': 'XINUSD', 'symbol': 'XIN/USD', 'base': 'XIN', 'quote': 'USD', 'baseId': 'XIN', 'quoteId': 'USD' },
-                'XIN/EUR': { 'id': 'XINEUR', 'symbol': 'XIN/EUR', 'base': 'XIN', 'quote': 'EUR', 'baseId': 'XIN', 'quoteId': 'EUR' },
-                'XIN/PLN': { 'id': 'XINPLN', 'symbol': 'XIN/PLN', 'base': 'XIN', 'quote': 'PLN', 'baseId': 'XIN', 'quoteId': 'PLN' },
+                // 'XIN/USD': { 'id': 'XINUSD', 'symbol': 'XIN/USD', 'base': 'XIN', 'quote': 'USD', 'baseId': 'XIN', 'quoteId': 'USD' },
+                // 'XIN/EUR': { 'id': 'XINEUR', 'symbol': 'XIN/EUR', 'base': 'XIN', 'quote': 'EUR', 'baseId': 'XIN', 'quoteId': 'EUR' },
+                // 'XIN/PLN': { 'id': 'XINPLN', 'symbol': 'XIN/PLN', 'base': 'XIN', 'quote': 'PLN', 'baseId': 'XIN', 'quoteId': 'PLN' },
                 'XIN/BTC': { 'id': 'XINBTC', 'symbol': 'XIN/BTC', 'base': 'XIN', 'quote': 'BTC', 'baseId': 'XIN', 'quoteId': 'BTC' },
             },
             'fees': {
@@ -177,7 +177,9 @@ module.exports = class bitbay extends Exchange {
         let timestamp = this.milliseconds ();
         let baseVolume = this.safeFloat (ticker, 'volume');
         let vwap = this.safeFloat (ticker, 'vwap');
-        let quoteVolume = baseVolume * vwap;
+        let quoteVolume = undefined;
+        if (baseVolume !== undefined && vwap !== undefined)
+            quoteVolume = baseVolume * vwap;
         let last = this.safeFloat (ticker, 'last');
         return {
             'symbol': symbol,
@@ -270,7 +272,7 @@ module.exports = class bitbay extends Exchange {
             // request['bic'] = '';
         } else {
             method = 'privatePostTransfer';
-            if (typeof tag !== 'undefined')
+            if (tag !== undefined)
                 address += '?dt=' + tag.toString ();
             request['address'] = address;
         }
@@ -284,7 +286,9 @@ module.exports = class bitbay extends Exchange {
     sign (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
         let url = this.urls['api'][api];
         if (api === 'public') {
+            let query = this.omit (params, this.extractParams (path));
             url += '/' + this.implodeParams (path, params) + '.json';
+            url += '?' + this.urlencode (query);
         } else {
             this.checkRequiredCredentials ();
             body = this.urlencode (this.extend ({
@@ -300,13 +304,12 @@ module.exports = class bitbay extends Exchange {
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 
-    handleErrors (httpCode, reason, url, method, headers, body) {
+    handleErrors (httpCode, reason, url, method, headers, body, response) {
         if (typeof body !== 'string')
             return; // fallback to default error handler
         if (body.length < 2)
             return;
         if ((body[0] === '{') || (body[0] === '[')) {
-            let response = JSON.parse (body);
             if ('code' in response) {
                 //
                 // bitbay returns the integer 'success': 1 key from their private API

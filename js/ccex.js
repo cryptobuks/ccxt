@@ -70,14 +70,17 @@ module.exports = class ccex extends Exchange {
                 },
             },
             'commonCurrencies': {
-                'IOT': 'IoTcoin',
                 'BLC': 'Cryptobullcoin',
+                'CRC': 'CoreCoin',
+                'IOT': 'IoTcoin',
+                'LUX': 'Luxmi',
+                'VIT': 'VitalCoin',
                 'XID': 'InternationalDiamond',
             },
         });
     }
 
-    async fetchMarkets () {
+    async fetchMarkets (params = {}) {
         let result = {};
         let response = await this.webGetPairs ();
         let markets = response['pairs'];
@@ -145,7 +148,7 @@ module.exports = class ccex extends Exchange {
             'market': this.marketId (symbol),
             'type': 'both',
         };
-        if (typeof limit !== 'undefined')
+        if (limit !== undefined)
             request['depth'] = limit; // 100
         let response = await this.publicGetOrderbook (this.extend (request, params));
         let orderbook = response['result'];
@@ -156,22 +159,21 @@ module.exports = class ccex extends Exchange {
         await this.loadMarkets ();
         let orderbooks = {};
         let response = await this.publicGetFullorderbook ();
-        let types = Object.keys (response['result']);
-        for (let i = 0; i < types.length; i++) {
-            let type = types[i];
-            let bidasks = response['result'][type];
+        let sides = Object.keys (response['result']);
+        for (let i = 0; i < sides.length; i++) {
+            let side = sides[i];
+            let bidasks = response['result'][side];
             let bidasksByMarketId = this.groupBy (bidasks, 'Market');
             let marketIds = Object.keys (bidasksByMarketId);
             for (let j = 0; j < marketIds.length; j++) {
                 let marketId = marketIds[j];
-                let symbol = marketId.toUpperCase ();
-                let side = type;
-                if (symbol in this.markets_by_id) {
+                let symbol = marketId;
+                if (marketId in this.markets_by_id) {
                     let market = this.markets_by_id[symbol];
                     symbol = market['symbol'];
                 } else {
-                    let [ base, quote ] = symbol.split ('-');
-                    let invertedId = quote + '-' + base;
+                    let [ baseId, quoteId ] = symbol.split ('-');
+                    let invertedId = quoteId + '-' + baseId;
                     if (invertedId in this.markets_by_id) {
                         let market = this.markets_by_id[invertedId];
                         symbol = market['symbol'];
@@ -194,18 +196,18 @@ module.exports = class ccex extends Exchange {
     parseTicker (ticker, market = undefined) {
         let timestamp = ticker['updated'] * 1000;
         let symbol = undefined;
-        if (market)
+        if (market !== undefined)
             symbol = market['symbol'];
-        let last = parseFloat (ticker['lastprice']);
+        let last = this.safeFloat (ticker, 'lastprice');
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
-            'high': parseFloat (ticker['high']),
-            'low': parseFloat (ticker['low']),
-            'bid': parseFloat (ticker['buy']),
+            'high': this.safeFloat (ticker, 'high'),
+            'low': this.safeFloat (ticker, 'low'),
+            'bid': this.safeFloat (ticker, 'buy'),
             'bidVolume': undefined,
-            'ask': parseFloat (ticker['sell']),
+            'ask': this.safeFloat (ticker, 'sell'),
             'askVolume': undefined,
             'vwap': undefined,
             'open': undefined,
@@ -214,7 +216,7 @@ module.exports = class ccex extends Exchange {
             'previousClose': undefined,
             'change': undefined,
             'percentage': undefined,
-            'average': parseFloat (ticker['avg']),
+            'average': this.safeFloat (ticker, 'avg'),
             'baseVolume': undefined,
             'quoteVolume': this.safeFloat (ticker, 'buysupport'),
             'info': ticker,
@@ -224,18 +226,18 @@ module.exports = class ccex extends Exchange {
     async fetchTickers (symbols = undefined, params = {}) {
         await this.loadMarkets ();
         let tickers = await this.webGetPrices (params);
-        let result = { 'info': tickers };
+        let result = {};
         let ids = Object.keys (tickers);
         for (let i = 0; i < ids.length; i++) {
             let id = ids[i];
             let ticker = tickers[id];
-            let uppercase = id.toUpperCase ();
             let market = undefined;
             let symbol = undefined;
-            if (uppercase in this.markets_by_id) {
-                market = this.markets_by_id[uppercase];
+            if (id in this.markets_by_id) {
+                market = this.markets_by_id[id];
                 symbol = market['symbol'];
             } else {
+                let uppercase = id.toUpperCase ();
                 let [ base, quote ] = uppercase.split ('-');
                 base = this.commonCurrencyCode (base);
                 quote = this.commonCurrencyCode (quote);

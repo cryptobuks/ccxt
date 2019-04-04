@@ -12,12 +12,14 @@ module.exports = class nova extends Exchange {
         return this.deepExtend (super.describe (), {
             'id': 'nova',
             'name': 'Novaexchange',
-            'countries': 'TZ', // Tanzania
+            'countries': [ 'TZ' ], // Tanzania
             'rateLimit': 2000,
             'version': 'v2',
             'has': {
                 'CORS': false,
                 'createMarketOrder': false,
+                'createDepositAddress': true,
+                'fetchDepositAddress': true,
             },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/30518571-78ca0bca-9b8a-11e7-8840-64b83a4a94b2.jpg',
@@ -62,24 +64,26 @@ module.exports = class nova extends Exchange {
         });
     }
 
-    async fetchMarkets () {
+    async fetchMarkets (params = {}) {
         let response = await this.publicGetMarkets ();
         let markets = response['markets'];
         let result = [];
         for (let i = 0; i < markets.length; i++) {
             let market = markets[i];
-            if (!market['disabled']) {
-                let id = market['marketname'];
-                let [ quote, base ] = id.split ('_');
-                let symbol = base + '/' + quote;
-                result.push ({
-                    'id': id,
-                    'symbol': symbol,
-                    'base': base,
-                    'quote': quote,
-                    'info': market,
-                });
-            }
+            let id = market['marketname'];
+            let [ quote, base ] = id.split ('_');
+            let symbol = base + '/' + quote;
+            let active = true;
+            if (market['disabled'])
+                active = false;
+            result.push ({
+                'id': id,
+                'symbol': symbol,
+                'base': base,
+                'quote': quote,
+                'active': active,
+                'info': market,
+            });
         }
         return result;
     }
@@ -99,13 +103,13 @@ module.exports = class nova extends Exchange {
         }, params));
         let ticker = response['markets'][0];
         let timestamp = this.milliseconds ();
-        let last = parseFloat (ticker['last_price']);
+        let last = this.safeFloat (ticker, 'last_price');
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
-            'high': parseFloat (ticker['high24h']),
-            'low': parseFloat (ticker['low24h']),
+            'high': this.safeFloat (ticker, 'high24h'),
+            'low': this.safeFloat (ticker, 'low24h'),
             'bid': this.safeFloat (ticker, 'bid'),
             'bidVolume': undefined,
             'ask': this.safeFloat (ticker, 'ask'),
@@ -115,11 +119,11 @@ module.exports = class nova extends Exchange {
             'close': last,
             'last': last,
             'previousClose': undefined,
-            'change': parseFloat (ticker['change24h']),
-            'percentage': undefined,
+            'change': undefined,
+            'percentage': this.safeFloat (ticker, 'change24h'),
             'average': undefined,
             'baseVolume': undefined,
-            'quoteVolume': parseFloat (ticker['volume24h']),
+            'quoteVolume': this.safeFloat (ticker, 'volume24h'),
             'info': ticker,
         };
     }
@@ -135,8 +139,8 @@ module.exports = class nova extends Exchange {
             'order': undefined,
             'type': undefined,
             'side': trade['tradetype'].toLowerCase (),
-            'price': parseFloat (trade['price']),
-            'amount': parseFloat (trade['amount']),
+            'price': this.safeFloat (trade, 'price'),
+            'amount': this.safeFloat (trade, 'amount'),
         };
     }
 
@@ -175,18 +179,22 @@ module.exports = class nova extends Exchange {
         await this.loadMarkets ();
         amount = amount.toString ();
         price = price.toString ();
-        let market = this.market (symbol);
-        let order = {
+        const market = this.market (symbol);
+        const order = {
             'tradetype': side.toUpperCase (),
             'tradeamount': amount,
             'tradeprice': price,
             'tradebase': 1,
             'pair': market['id'],
         };
-        let response = await this.privatePostTradePair (this.extend (order, params));
+        const response = await this.privatePostTradePair (this.extend (order, params));
+        const tradeItems = this.safeValue (response, 'tradeitems', []);
+        const tradeItemsByType = this.indexBy (tradeItems, 'type');
+        const created = this.safeValue (tradeItemsByType, 'created', {});
+        const orderId = this.safeString (created, 'orderid');
         return {
             'info': response,
-            'id': undefined,
+            'id': orderId,
         };
     }
 
@@ -194,6 +202,40 @@ module.exports = class nova extends Exchange {
         return await this.privatePostCancelorder (this.extend ({
             'orderid': id,
         }, params));
+    }
+
+    async createDepositAddress (code, params = {}) {
+        await this.loadMarkets ();
+        const currency = this.currency (code);
+        let response = await this.privatePostGetnewdepositaddressCurrency (this.extend ({
+            'currency': currency,
+        }, params));
+        const address = this.safeString (response, 'address');
+        this.checkAddress (address);
+        const tag = this.safeString (response, 'tag');
+        return {
+            'currency': code,
+            'address': address,
+            'tag': tag,
+            'info': response,
+        };
+    }
+
+    async fetchDepositAddress (code, params = {}) {
+        await this.loadMarkets ();
+        const currency = this.currency (code);
+        let response = await this.privatePostGetdepositaddressCurrency (this.extend ({
+            'currency': currency,
+        }, params));
+        const address = this.safeString (response, 'address');
+        this.checkAddress (address);
+        const tag = this.safeString (response, 'tag');
+        return {
+            'currency': code,
+            'address': address,
+            'tag': tag,
+            'info': response,
+        };
     }
 
     sign (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {

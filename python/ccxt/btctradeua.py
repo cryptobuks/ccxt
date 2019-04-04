@@ -5,6 +5,7 @@
 
 from ccxt.base.exchange import Exchange
 from ccxt.base.errors import ExchangeError
+from ccxt.base.errors import ArgumentsRequired
 
 
 class btctradeua (Exchange):
@@ -13,7 +14,7 @@ class btctradeua (Exchange):
         return self.deep_extend(super(btctradeua, self).describe(), {
             'id': 'btctradeua',
             'name': 'BTC Trade UA',
-            'countries': 'UA',  # Ukraine,
+            'countries': ['UA'],  # Ukraine,
             'rateLimit': 3000,
             'has': {
                 'CORS': True,
@@ -84,8 +85,8 @@ class btctradeua (Exchange):
             },
         })
 
-    def sign_in(self):
-        return self.privatePostAuth()
+    def sign_in(self, params={}):
+        return self.privatePostAuth(params)
 
     def fetch_balance(self, params={}):
         response = self.privatePostBalance()
@@ -228,8 +229,8 @@ class btctradeua (Exchange):
             'symbol': market['symbol'],
             'type': 'limit',
             'side': trade['type'],
-            'price': float(trade['price']),
-            'amount': float(trade['amnt_trade']),
+            'price': self.safe_float(trade, 'price'),
+            'amount': self.safe_float(trade, 'amnt_trade'),
         }
 
     def fetch_trades(self, symbol, since=None, limit=None, params={}):
@@ -267,6 +268,7 @@ class btctradeua (Exchange):
             'id': trade['id'],
             'timestamp': timestamp,  # until they fix their timestamp
             'datetime': self.iso8601(timestamp),
+            'lastTradeTimestamp': None,
             'status': 'open',
             'symbol': market['symbol'],
             'type': None,
@@ -280,8 +282,8 @@ class btctradeua (Exchange):
         }
 
     def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
-        if not symbol:
-            raise ExchangeError(self.id + ' fetchOpenOrders requires a symbol param')
+        if symbol is None:
+            raise ArgumentsRequired(self.id + ' fetchOpenOrders requires a symbol argument')
         market = self.market(symbol)
         response = self.privatePostMyOrdersSymbol(self.extend({
             'symbol': market['id'],

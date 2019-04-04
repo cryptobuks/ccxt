@@ -14,7 +14,7 @@ class fybse (Exchange):
         return self.deep_extend(super(fybse, self).describe(), {
             'id': 'fybse',
             'name': 'FYB-SE',
-            'countries': 'SE',  # Sweden
+            'countries': ['SE'],  # Sweden
             'has': {
                 'CORS': False,
             },
@@ -23,7 +23,7 @@ class fybse (Exchange):
                 'logo': 'https://user-images.githubusercontent.com/1294454/27766512-31019772-5edb-11e7-8241-2e675e6797f1.jpg',
                 'api': 'https://www.fybse.se/api/SEK',
                 'www': 'https://www.fybse.se',
-                'doc': 'http://docs.fyb.apiary.io',
+                'doc': 'https://fyb.docs.apiary.io',
             },
             'api': {
                 'public': {
@@ -82,18 +82,18 @@ class fybse (Exchange):
         last = None
         volume = None
         if 'last' in ticker:
-            last = float(ticker['last'])
+            last = self.safe_float(ticker, 'last')
         if 'vol' in ticker:
-            volume = float(ticker['vol'])
+            volume = self.safe_float(ticker, 'vol')
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
             'high': None,
             'low': None,
-            'bid': float(ticker['bid']),
+            'bid': self.safe_float(ticker, 'bid'),
             'bidVolume': None,
-            'ask': float(ticker['ask']),
+            'ask': self.safe_float(ticker, 'ask'),
             'askVolume': None,
             'vwap': None,
             'open': None,
@@ -119,8 +119,8 @@ class fybse (Exchange):
             'symbol': market['symbol'],
             'type': None,
             'side': None,
-            'price': float(trade['price']),
-            'amount': float(trade['amount']),
+            'price': self.safe_float(trade, 'price'),
+            'amount': self.safe_float(trade, 'amount'),
         }
 
     def fetch_trades(self, symbol, since=None, limit=None, params={}):

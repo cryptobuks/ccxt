@@ -12,11 +12,11 @@ module.exports = class southxchange extends Exchange {
         return this.deepExtend (super.describe (), {
             'id': 'southxchange',
             'name': 'SouthXchange',
-            'countries': 'AR', // Argentina
+            'countries': [ 'AR' ], // Argentina
             'rateLimit': 1000,
             'has': {
                 'CORS': true,
-                'createDepositAddres': true,
+                'createDepositAddress': true,
                 'fetchOpenOrders': true,
                 'fetchTickers': true,
                 'withdraw': true,
@@ -57,16 +57,22 @@ module.exports = class southxchange extends Exchange {
                     'taker': 0.2 / 100,
                 },
             },
+            'commonCurrencies': {
+                'SMT': 'SmartNode',
+                'MTC': 'Marinecoin',
+            },
         });
     }
 
-    async fetchMarkets () {
+    async fetchMarkets (params = {}) {
         let markets = await this.publicGetMarkets ();
         let result = [];
         for (let p = 0; p < markets.length; p++) {
             let market = markets[p];
-            let base = market[0];
-            let quote = market[1];
+            let baseId = market[0];
+            let quoteId = market[1];
+            let base = this.commonCurrencyCode (baseId);
+            let quote = this.commonCurrencyCode (quoteId);
             let symbol = base + '/' + quote;
             let id = symbol;
             result.push ({
@@ -74,6 +80,9 @@ module.exports = class southxchange extends Exchange {
                 'symbol': symbol,
                 'base': base,
                 'quote': quote,
+                'baseId': baseId,
+                'quoteId': quoteId,
+                'active': undefined,
                 'info': market,
             });
         }
@@ -88,17 +97,21 @@ module.exports = class southxchange extends Exchange {
         let result = { 'info': balances };
         for (let b = 0; b < balances.length; b++) {
             let balance = balances[b];
-            let currency = balance['Currency'];
-            let uppercase = currency.toUpperCase ();
+            let currencyId = balance['Currency'];
+            let uppercase = currencyId.toUpperCase ();
+            let currency = this.currencies_by_id[uppercase];
+            let code = currency['code'];
             let free = parseFloat (balance['Available']);
-            let used = parseFloat (balance['Unconfirmed']);
-            let total = this.sum (free, used);
+            let deposited = parseFloat (balance['Deposited']);
+            let unconfirmed = parseFloat (balance['Unconfirmed']);
+            let total = this.sum (deposited, unconfirmed);
+            let used = total - free;
             let account = {
                 'free': free,
                 'used': used,
                 'total': total,
             };
-            result[uppercase] = account;
+            result[code] = account;
         }
         return this.parseBalance (result);
     }
@@ -132,8 +145,8 @@ module.exports = class southxchange extends Exchange {
             'close': last,
             'last': last,
             'previousClose': undefined,
-            'change': this.safeFloat (ticker, 'Variation24Hr'),
-            'percentage': undefined,
+            'change': undefined,
+            'percentage': this.safeFloat (ticker, 'Variation24Hr'),
             'average': undefined,
             'baseVolume': this.safeFloat (ticker, 'Volume24Hr'),
             'quoteVolume': undefined,
@@ -199,14 +212,14 @@ module.exports = class southxchange extends Exchange {
         let status = 'open';
         let symbol = order['ListingCurrency'] + '/' + order['ReferenceCurrency'];
         let timestamp = undefined;
-        let price = parseFloat (order['LimitPrice']);
+        let price = this.safeFloat (order, 'LimitPrice');
         let amount = this.safeFloat (order, 'OriginalAmount');
         let remaining = this.safeFloat (order, 'Amount');
         let filled = undefined;
         let cost = undefined;
-        if (typeof amount !== 'undefined') {
+        if (amount !== undefined) {
             cost = price * amount;
-            if (typeof remaining !== 'undefined')
+            if (remaining !== undefined)
                 filled = amount - remaining;
         }
         let orderType = order['Type'].toLowerCase ();
@@ -215,9 +228,10 @@ module.exports = class southxchange extends Exchange {
             'id': order['Code'].toString (),
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
+            'lastTradeTimestamp': undefined,
             'symbol': symbol,
-            'type': orderType,
-            'side': undefined,
+            'type': 'limit',
+            'side': orderType,
             'price': price,
             'amount': amount,
             'cost': cost,
@@ -232,7 +246,7 @@ module.exports = class southxchange extends Exchange {
     async fetchOpenOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
         await this.loadMarkets ();
         let market = undefined;
-        if (typeof symbol !== 'undefined')
+        if (symbol !== undefined)
             market = this.market (symbol);
         let response = await this.privatePostListOrders ();
         return this.parseOrders (response, market, since, limit);
@@ -280,20 +294,22 @@ module.exports = class southxchange extends Exchange {
             'currency': code,
             'address': address,
             'tag': tag,
-            'status': 'ok',
             'info': response,
         };
     }
 
-    async withdraw (currency, amount, address, tag = undefined, params = {}) {
+    async withdraw (code, amount, address, tag = undefined, params = {}) {
         this.checkAddress (address);
+        await this.loadMarkets ();
+        let currency = this.currency (code);
         let request = {
-            'currency': currency,
+            'currency': currency['id'],
             'address': address,
             'amount': amount,
         };
-        if (typeof tag !== 'undefined')
+        if (tag !== undefined) {
             request['address'] = address + '|' + tag;
+        }
         let response = await this.privatePostWithdraw (this.extend (request, params));
         return {
             'info': response,

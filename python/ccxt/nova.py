@@ -14,12 +14,14 @@ class nova (Exchange):
         return self.deep_extend(super(nova, self).describe(), {
             'id': 'nova',
             'name': 'Novaexchange',
-            'countries': 'TZ',  # Tanzania
+            'countries': ['TZ'],  # Tanzania
             'rateLimit': 2000,
             'version': 'v2',
             'has': {
                 'CORS': False,
                 'createMarketOrder': False,
+                'createDepositAddress': True,
+                'fetchDepositAddress': True,
             },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/30518571-78ca0bca-9b8a-11e7-8840-64b83a4a94b2.jpg',
@@ -63,23 +65,26 @@ class nova (Exchange):
             },
         })
 
-    def fetch_markets(self):
+    def fetch_markets(self, params={}):
         response = self.publicGetMarkets()
         markets = response['markets']
         result = []
         for i in range(0, len(markets)):
             market = markets[i]
-            if not market['disabled']:
-                id = market['marketname']
-                quote, base = id.split('_')
-                symbol = base + '/' + quote
-                result.append({
-                    'id': id,
-                    'symbol': symbol,
-                    'base': base,
-                    'quote': quote,
-                    'info': market,
-                })
+            id = market['marketname']
+            quote, base = id.split('_')
+            symbol = base + '/' + quote
+            active = True
+            if market['disabled']:
+                active = False
+            result.append({
+                'id': id,
+                'symbol': symbol,
+                'base': base,
+                'quote': quote,
+                'active': active,
+                'info': market,
+            })
         return result
 
     def fetch_order_book(self, symbol, limit=None, params={}):
@@ -96,13 +101,13 @@ class nova (Exchange):
         }, params))
         ticker = response['markets'][0]
         timestamp = self.milliseconds()
-        last = float(ticker['last_price'])
+        last = self.safe_float(ticker, 'last_price')
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': float(ticker['high24h']),
-            'low': float(ticker['low24h']),
+            'high': self.safe_float(ticker, 'high24h'),
+            'low': self.safe_float(ticker, 'low24h'),
             'bid': self.safe_float(ticker, 'bid'),
             'bidVolume': None,
             'ask': self.safe_float(ticker, 'ask'),
@@ -112,11 +117,11 @@ class nova (Exchange):
             'close': last,
             'last': last,
             'previousClose': None,
-            'change': float(ticker['change24h']),
-            'percentage': None,
+            'change': None,
+            'percentage': self.safe_float(ticker, 'change24h'),
             'average': None,
             'baseVolume': None,
-            'quoteVolume': float(ticker['volume24h']),
+            'quoteVolume': self.safe_float(ticker, 'volume24h'),
             'info': ticker,
         }
 
@@ -131,8 +136,8 @@ class nova (Exchange):
             'order': None,
             'type': None,
             'side': trade['tradetype'].lower(),
-            'price': float(trade['price']),
-            'amount': float(trade['amount']),
+            'price': self.safe_float(trade, 'price'),
+            'amount': self.safe_float(trade, 'amount'),
         }
 
     def fetch_trades(self, symbol, since=None, limit=None, params={}):
@@ -176,15 +181,51 @@ class nova (Exchange):
             'pair': market['id'],
         }
         response = self.privatePostTradePair(self.extend(order, params))
+        tradeItems = self.safe_value(response, 'tradeitems', [])
+        tradeItemsByType = self.index_by(tradeItems, 'type')
+        created = self.safe_value(tradeItemsByType, 'created', {})
+        orderId = self.safe_string(created, 'orderid')
         return {
             'info': response,
-            'id': None,
+            'id': orderId,
         }
 
     def cancel_order(self, id, symbol=None, params={}):
         return self.privatePostCancelorder(self.extend({
             'orderid': id,
         }, params))
+
+    def create_deposit_address(self, code, params={}):
+        self.load_markets()
+        currency = self.currency(code)
+        response = self.privatePostGetnewdepositaddressCurrency(self.extend({
+            'currency': currency,
+        }, params))
+        address = self.safe_string(response, 'address')
+        self.check_address(address)
+        tag = self.safe_string(response, 'tag')
+        return {
+            'currency': code,
+            'address': address,
+            'tag': tag,
+            'info': response,
+        }
+
+    def fetch_deposit_address(self, code, params={}):
+        self.load_markets()
+        currency = self.currency(code)
+        response = self.privatePostGetdepositaddressCurrency(self.extend({
+            'currency': currency,
+        }, params))
+        address = self.safe_string(response, 'address')
+        self.check_address(address)
+        tag = self.safe_string(response, 'tag')
+        return {
+            'currency': code,
+            'address': address,
+            'tag': tag,
+            'info': response,
+        }
 
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         url = self.urls['api'] + '/' + self.version + '/'

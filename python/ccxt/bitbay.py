@@ -12,7 +12,6 @@ try:
 except NameError:
     basestring = str  # Python 2
 import hashlib
-import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import InsufficientFunds
@@ -26,7 +25,7 @@ class bitbay (Exchange):
         return self.deep_extend(super(bitbay, self).describe(), {
             'id': 'bitbay',
             'name': 'BitBay',
-            'countries': ['PL', 'EU'],  # Poland
+            'countries': ['MT', 'EU'],  # Malta
             'rateLimit': 1000,
             'has': {
                 'CORS': True,
@@ -106,9 +105,9 @@ class bitbay (Exchange):
                 'XRP/EUR': {'id': 'XRPEUR', 'symbol': 'XRP/EUR', 'base': 'XRP', 'quote': 'EUR', 'baseId': 'XRP', 'quoteId': 'EUR'},
                 'XRP/PLN': {'id': 'XRPPLN', 'symbol': 'XRP/PLN', 'base': 'XRP', 'quote': 'PLN', 'baseId': 'XRP', 'quoteId': 'PLN'},
                 'XRP/BTC': {'id': 'XRPBTC', 'symbol': 'XRP/BTC', 'base': 'XRP', 'quote': 'BTC', 'baseId': 'XRP', 'quoteId': 'BTC'},
-                'XIN/USD': {'id': 'XINUSD', 'symbol': 'XIN/USD', 'base': 'XIN', 'quote': 'USD', 'baseId': 'XIN', 'quoteId': 'USD'},
-                'XIN/EUR': {'id': 'XINEUR', 'symbol': 'XIN/EUR', 'base': 'XIN', 'quote': 'EUR', 'baseId': 'XIN', 'quoteId': 'EUR'},
-                'XIN/PLN': {'id': 'XINPLN', 'symbol': 'XIN/PLN', 'base': 'XIN', 'quote': 'PLN', 'baseId': 'XIN', 'quoteId': 'PLN'},
+                # 'XIN/USD': {'id': 'XINUSD', 'symbol': 'XIN/USD', 'base': 'XIN', 'quote': 'USD', 'baseId': 'XIN', 'quoteId': 'USD'},
+                # 'XIN/EUR': {'id': 'XINEUR', 'symbol': 'XIN/EUR', 'base': 'XIN', 'quote': 'EUR', 'baseId': 'XIN', 'quoteId': 'EUR'},
+                # 'XIN/PLN': {'id': 'XINPLN', 'symbol': 'XIN/PLN', 'base': 'XIN', 'quote': 'PLN', 'baseId': 'XIN', 'quoteId': 'PLN'},
                 'XIN/BTC': {'id': 'XINBTC', 'symbol': 'XIN/BTC', 'base': 'XIN', 'quote': 'BTC', 'baseId': 'XIN', 'quoteId': 'BTC'},
             },
             'fees': {
@@ -185,7 +184,9 @@ class bitbay (Exchange):
         timestamp = self.milliseconds()
         baseVolume = self.safe_float(ticker, 'volume')
         vwap = self.safe_float(ticker, 'vwap')
-        quoteVolume = baseVolume * vwap
+        quoteVolume = None
+        if baseVolume is not None and vwap is not None:
+            quoteVolume = baseVolume * vwap
         last = self.safe_float(ticker, 'last')
         return {
             'symbol': symbol,
@@ -284,7 +285,9 @@ class bitbay (Exchange):
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         url = self.urls['api'][api]
         if api == 'public':
+            query = self.omit(params, self.extract_params(path))
             url += '/' + self.implode_params(path, params) + '.json'
+            url += '?' + self.urlencode(query)
         else:
             self.check_required_credentials()
             body = self.urlencode(self.extend({
@@ -298,13 +301,12 @@ class bitbay (Exchange):
             }
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, httpCode, reason, url, method, headers, body):
+    def handle_errors(self, httpCode, reason, url, method, headers, body, response):
         if not isinstance(body, basestring):
             return  # fallback to default error handler
         if len(body) < 2:
             return
         if (body[0] == '{') or (body[0] == '['):
-            response = json.loads(body)
             if 'code' in response:
                 #
                 # bitbay returns the integer 'success': 1 key from their private API

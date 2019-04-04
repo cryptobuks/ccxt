@@ -97,9 +97,7 @@ module.exports = class paymium extends Exchange {
         let orderbook = await this.publicGetDataIdDepth (this.extend ({
             'id': this.marketId (symbol),
         }, params));
-        let result = this.parseOrderBook (orderbook, undefined, 'bids', 'asks', 'price', 'amount');
-        result['bids'] = this.sortBy (result['bids'], 0, true);
-        return result;
+        return this.parseOrderBook (orderbook, undefined, 'bids', 'asks', 'price', 'amount');
     }
 
     async fetchTicker (symbol, params = {}) {
@@ -107,9 +105,11 @@ module.exports = class paymium extends Exchange {
             'id': this.marketId (symbol),
         }, params));
         let timestamp = ticker['at'] * 1000;
-        let vwap = parseFloat (ticker['vwap']);
-        let baseVolume = parseFloat (ticker['volume']);
-        let quoteVolume = baseVolume * vwap;
+        let vwap = this.safeFloat (ticker, 'vwap');
+        let baseVolume = this.safeFloat (ticker, 'volume');
+        let quoteVolume = undefined;
+        if (baseVolume !== undefined && vwap !== undefined)
+            quoteVolume = baseVolume * vwap;
         let last = this.safeFloat (ticker, 'price');
         return {
             'symbol': symbol,
@@ -160,14 +160,14 @@ module.exports = class paymium extends Exchange {
         return this.parseTrades (response, market, since, limit);
     }
 
-    async createOrder (market, type, side, amount, price = undefined, params = {}) {
+    async createOrder (symbol, type, side, amount, price = undefined, params = {}) {
         let order = {
             'type': this.capitalize (type) + 'Order',
-            'currency': this.marketId (market),
+            'currency': this.marketId (symbol),
             'direction': side,
             'amount': amount,
         };
-        if (type === 'market')
+        if (type !== 'market')
             order['price'] = price;
         let response = await this.privatePostUserOrders (this.extend (order, params));
         return {
@@ -177,8 +177,8 @@ module.exports = class paymium extends Exchange {
     }
 
     async cancelOrder (id, symbol = undefined, params = {}) {
-        return await this.privatePostCancelOrder (this.extend ({
-            'orderNumber': id,
+        return await this.privateDeleteUserOrdersUUIDCancel (this.extend ({
+            'UUID': id,
         }, params));
     }
 
@@ -190,9 +190,14 @@ module.exports = class paymium extends Exchange {
                 url += '?' + this.urlencode (query);
         } else {
             this.checkRequiredCredentials ();
-            body = this.json (params);
             let nonce = this.nonce ().toString ();
-            let auth = nonce + url + body;
+            let auth = nonce + url;
+            if (method === 'POST') {
+                if (Object.keys (query).length) {
+                    body = this.json (query);
+                    auth += body;
+                }
+            }
             headers = {
                 'Api-Key': this.apiKey,
                 'Api-Signature': this.hmac (this.encode (auth), this.encode (this.secret)),

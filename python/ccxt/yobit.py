@@ -5,8 +5,8 @@
 
 from ccxt.liqui import liqui
 from ccxt.base.errors import ExchangeError
+from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import InsufficientFunds
-from ccxt.base.errors import DDoSProtection
 
 
 class yobit (liqui):
@@ -15,12 +15,15 @@ class yobit (liqui):
         return self.deep_extend(super(yobit, self).describe(), {
             'id': 'yobit',
             'name': 'YoBit',
-            'countries': 'RU',
+            'countries': ['RU'],
             'rateLimit': 3000,  # responses are cached every 2 seconds
             'version': '3',
             'has': {
                 'createDepositAddress': True,
                 'fetchDepositAddress': True,
+                'fetchDeposits': False,
+                'fetchWithdrawals': False,
+                'fetchTransactions': False,
                 'CORS': False,
                 'withdraw': True,
             },
@@ -68,24 +71,82 @@ class yobit (liqui):
             'commonCurrencies': {
                 'AIR': 'AirCoin',
                 'ANI': 'ANICoin',
-                'ANT': 'AntsCoin',
+                'ANT': 'AntsCoin',  # what is self, a coin for ants?
+                'ATMCHA': 'ATM',
+                'ASN': 'Ascension',
+                'AST': 'Astral',
                 'ATM': 'Autumncoin',
                 'BCC': 'BCH',
                 'BCS': 'BitcoinStake',
+                'BLN': 'Bulleon',
+                'BOT': 'BOTcoin',
+                'BON': 'BONES',
+                'BPC': 'BitcoinPremium',
                 'BTS': 'Bitshares2',
+                'CAT': 'BitClave',
+                'CMT': 'CometCoin',
+                'COV': 'Coven Coin',
+                'COVX': 'COV',
+                'CPC': 'Capricoin',
+                'CS': 'CryptoSpots',
                 'DCT': 'Discount',
                 'DGD': 'DarkGoldCoin',
+                'DIRT': 'DIRTY',
+                'DROP': 'FaucetCoin',
+                'EKO': 'EkoCoin',
+                'ENTER': 'ENTRC',
+                'EPC': 'ExperienceCoin',
+                'ERT': 'Eristica Token',
+                'ESC': 'EdwardSnowden',
+                'EUROPE': 'EUROP',
+                'EXT': 'LifeExtension',
+                'FUNK': 'FUNKCoin',
+                'GCC': 'GlobalCryptocurrency',
+                'GEN': 'Genstake',
+                'GENE': 'Genesiscoin',
+                'GOLD': 'GoldMint',
+                'GOT': 'Giotto Coin',
+                'HTML5': 'HTML',
+                'HYPERX': 'HYPER',
                 'ICN': 'iCoin',
+                'INSANE': 'INSN',
+                'JNT': 'JointCoin',
+                'JPC': 'JupiterCoin',
+                'KNC': 'KingN Coin',
+                'LBTCX': 'LiteBitcoin',
                 'LIZI': 'LiZi',
-                'LUN': 'LunarCoin',
+                'LOC': 'LocoCoin',
+                'LOCX': 'LOC',
+                'LUNYR': 'LUN',
+                'LUN': 'LunarCoin',  # they just change the ticker if it is already taken
                 'MDT': 'Midnight',
                 'NAV': 'NavajoCoin',
+                'NBT': 'NiceBytes',
                 'OMG': 'OMGame',
+                'PAC': '$PAC',
+                'PLAY': 'PlayCoin',
+                'PIVX': 'Darknet',
+                'PRS': 'PRE',
+                'PUTIN': 'PUT',
+                'STK': 'StakeCoin',
+                'SUB': 'Subscriptio',
                 'PAY': 'EPAY',
+                'PLC': 'Platin Coin',
+                'RCN': 'RCoin',
                 'REP': 'Republicoin',
+                'RUR': 'RUB',
+                'XIN': 'XINCoin',
             },
             'options': {
                 'fetchOrdersRequiresSymbol': True,
+                'fetchTickersMaxLength': 512,
+            },
+            'exceptions': {
+                'broad': {
+                    'Total transaction amount': ExchangeError,  # {"success": 0, "error": "Total transaction amount is less than minimal total: 0.00010000"}
+                    'Insufficient funds': InsufficientFunds,
+                    'invalid key': AuthenticationError,
+                },
             },
         })
 
@@ -122,7 +183,7 @@ class yobit (liqui):
                     else:
                         account = self.account()
                     account[key] = balances[side][lowercase]
-                    if account['total'] and account['free']:
+                    if (account['total'] is not None) and(account['free'] is not None):
                         account['used'] = account['total'] - account['free']
                     result[currency] = account
         return self.parse_balance(result)
@@ -136,11 +197,12 @@ class yobit (liqui):
         return {
             'currency': code,
             'address': address,
-            'status': 'ok',
+            'tag': None,
             'info': response['info'],
         }
 
     def fetch_deposit_address(self, code, params={}):
+        self.load_markets()
         currency = self.currency(code)
         request = {
             'coinName': currency['id'],
@@ -152,15 +214,50 @@ class yobit (liqui):
         return {
             'currency': code,
             'address': address,
-            'status': 'ok',
+            'tag': None,
             'info': response,
         }
 
-    def withdraw(self, currency, amount, address, tag=None, params={}):
+    def fetch_my_trades(self, symbol=None, since=None, limit=None, params={}):
+        self.load_markets()
+        market = None
+        # some derived classes use camelcase notation for request fields
+        request = {
+            # 'from': 123456789,  # trade ID, from which the display starts numerical 0(test result: liqui ignores self field)
+            # 'count': 1000,  # the number of trades for display numerical, default = 1000
+            # 'from_id': trade ID, from which the display starts numerical 0
+            # 'end_id': trade ID on which the display ends numerical ∞
+            # 'order': 'ASC',  # sorting, default = DESC(test result: liqui ignores self field, most recent trade always goes last)
+            # 'since': 1234567890,  # UTC start time, default = 0(test result: liqui ignores self field)
+            # 'end': 1234567890,  # UTC end time, default = ∞(test result: liqui ignores self field)
+            # 'pair': 'eth_btc',  # default = all markets
+        }
+        if symbol is not None:
+            market = self.market(symbol)
+            request['pair'] = market['id']
+        if limit is not None:
+            request['count'] = int(limit)
+        if since is not None:
+            request['since'] = int(since / 1000)
+        method = self.options['fetchMyTradesMethod']
+        response = getattr(self, method)(self.extend(request, params))
+        trades = self.safe_value(response, 'return', {})
+        ids = list(trades.keys())
+        result = []
+        for i in range(0, len(ids)):
+            id = ids[i]
+            trade = self.parse_trade(self.extend(trades[id], {
+                'trade_id': id,
+            }), market)
+            result.append(trade)
+        return self.filter_by_symbol_since_limit(result, symbol, since, limit)
+
+    def withdraw(self, code, amount, address, tag=None, params={}):
         self.check_address(address)
         self.load_markets()
+        currency = self.currency(code)
         response = self.privatePostWithdrawCoinsToAddress(self.extend({
-            'coinName': currency,
+            'coinName': currency['id'],
             'amount': amount,
             'address': address,
         }, params))
@@ -168,17 +265,3 @@ class yobit (liqui):
             'info': response,
             'id': None,
         }
-
-    def request(self, path, api='public', method='GET', params={}, headers=None, body=None):
-        response = self.fetch2(path, api, method, params, headers, body)
-        if 'success' in response:
-            if not response['success']:
-                if response['error'].find('Insufficient funds') >= 0:  # not enougTh is a typo inside Liqui's own API...
-                    raise InsufficientFunds(self.id + ' ' + self.json(response))
-                elif response['error'] == 'Requests too often':
-                    raise DDoSProtection(self.id + ' ' + self.json(response))
-                elif (response['error'] == 'not available') or (response['error'] == 'external service unavailable'):
-                    raise DDoSProtection(self.id + ' ' + self.json(response))
-                else:
-                    raise ExchangeError(self.id + ' ' + self.json(response))
-        return response

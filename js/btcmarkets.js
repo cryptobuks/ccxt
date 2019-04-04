@@ -12,7 +12,7 @@ module.exports = class btcmarkets extends Exchange {
         return this.deepExtend (super.describe (), {
             'id': 'btcmarkets',
             'name': 'BTC Markets',
-            'countries': 'AU', // Australia
+            'countries': [ 'AU' ], // Australia
             'rateLimit': 1000, // market data cached for 1 second (trades cached for 2 seconds)
             'has': {
                 'CORS': false,
@@ -22,6 +22,7 @@ module.exports = class btcmarkets extends Exchange {
                 'fetchClosedOrders': 'emulated',
                 'fetchOpenOrders': true,
                 'fetchMyTrades': true,
+                'cancelOrders': true,
             },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/29142911-0e1acfc2-7d5c-11e7-98c4-07d9532b29d7.jpg',
@@ -30,7 +31,7 @@ module.exports = class btcmarkets extends Exchange {
                     'private': 'https://api.btcmarkets.net',
                     'web': 'https://btcmarkets.net/data',
                 },
-                'www': 'https://btcmarkets.net/',
+                'www': 'https://btcmarkets.net',
                 'doc': 'https://github.com/BTCMarkets/API',
             },
             'api': {
@@ -39,12 +40,20 @@ module.exports = class btcmarkets extends Exchange {
                         'market/{id}/tick',
                         'market/{id}/orderbook',
                         'market/{id}/trades',
+                        'v2/market/{id}/tickByTime/{timeframe}',
+                        'v2/market/{id}/trades',
+                        'v2/market/active',
                     ],
                 },
                 'private': {
                     'get': [
                         'account/balance',
                         'account/{id}/tradingfee',
+                        'v2/order/open',
+                        'v2/order/open/{id}',
+                        'v2/order/history/{id}',
+                        'v2/order/trade/history/{id}',
+                        'v2/transaction/history/{currency}',
                     ],
                     'post': [
                         'fundtransfer/withdrawCrypto',
@@ -64,19 +73,6 @@ module.exports = class btcmarkets extends Exchange {
                     ],
                 },
             },
-            'markets': {
-                'BTC/AUD': { 'id': 'BTC/AUD', 'symbol': 'BTC/AUD', 'base': 'BTC', 'quote': 'AUD', 'maker': 0.0085, 'taker': 0.0085, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}, 'precision': { 'price': 2 }},
-                'LTC/AUD': { 'id': 'LTC/AUD', 'symbol': 'LTC/AUD', 'base': 'LTC', 'quote': 'AUD', 'maker': 0.0085, 'taker': 0.0085, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}, 'precision': { 'price': 2 }},
-                'ETH/AUD': { 'id': 'ETH/AUD', 'symbol': 'ETH/AUD', 'base': 'ETH', 'quote': 'AUD', 'maker': 0.0085, 'taker': 0.0085, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}, 'precision': { 'price': 2 }},
-                'ETC/AUD': { 'id': 'ETC/AUD', 'symbol': 'ETC/AUD', 'base': 'ETC', 'quote': 'AUD', 'maker': 0.0085, 'taker': 0.0085, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}, 'precision': { 'price': 2 }},
-                'XRP/AUD': { 'id': 'XRP/AUD', 'symbol': 'XRP/AUD', 'base': 'XRP', 'quote': 'AUD', 'maker': 0.0085, 'taker': 0.0085, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}, 'precision': { 'price': 2 }},
-                'BCH/AUD': { 'id': 'BCH/AUD', 'symbol': 'BCH/AUD', 'base': 'BCH', 'quote': 'AUD', 'maker': 0.0085, 'taker': 0.0085, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}, 'precision': { 'price': 2 }},
-                'LTC/BTC': { 'id': 'LTC/BTC', 'symbol': 'LTC/BTC', 'base': 'LTC', 'quote': 'BTC', 'maker': 0.0022, 'taker': 0.0022, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}},
-                'ETH/BTC': { 'id': 'ETH/BTC', 'symbol': 'ETH/BTC', 'base': 'ETH', 'quote': 'BTC', 'maker': 0.0022, 'taker': 0.0022, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}},
-                'ETC/BTC': { 'id': 'ETC/BTC', 'symbol': 'ETC/BTC', 'base': 'ETC', 'quote': 'BTC', 'maker': 0.0022, 'taker': 0.0022, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}},
-                'XRP/BTC': { 'id': 'XRP/BTC', 'symbol': 'XRP/BTC', 'base': 'XRP', 'quote': 'BTC', 'maker': 0.0022, 'taker': 0.0022, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}},
-                'BCH/BTC': { 'id': 'BCH/BTC', 'symbol': 'BCH/BTC', 'base': 'BCH', 'quote': 'BTC', 'maker': 0.0022, 'taker': 0.0022, 'limits': { 'amount': { 'min': 0.001, 'max': undefined }}},
-            },
             'timeframes': {
                 '1m': 'minute',
                 '1h': 'hour',
@@ -87,6 +83,65 @@ module.exports = class btcmarkets extends Exchange {
                 '6': DDoSProtection,
             },
         });
+    }
+
+    async fetchMarkets (params = {}) {
+        let response = await this.publicGetV2MarketActive ();
+        let result = [];
+        let markets = response['markets'];
+        for (let i = 0; i < markets.length; i++) {
+            let market = markets[i];
+            let baseId = market['instrument'];
+            let quoteId = market['currency'];
+            let id = baseId + '/' + quoteId;
+            let base = this.commonCurrencyCode (baseId);
+            let quote = this.commonCurrencyCode (quoteId);
+            let symbol = base + '/' + quote;
+            let fee = (quote === 'AUD') ? 0.0085 : 0.0022;
+            let pricePrecision = 2;
+            let amountPrecision = 4;
+            let minAmount = 0.001; // where does it come from?
+            let minPrice = undefined;
+            if (quote === 'AUD') {
+                if ((base === 'XRP') || (base === 'OMG')) {
+                    pricePrecision = 4;
+                }
+                amountPrecision = -Math.log10 (minAmount);
+                minPrice = Math.pow (10, -pricePrecision);
+            }
+            let precision = {
+                'amount': amountPrecision,
+                'price': pricePrecision,
+            };
+            let limits = {
+                'amount': {
+                    'min': minAmount,
+                    'max': undefined,
+                },
+                'price': {
+                    'min': minPrice,
+                    'max': undefined,
+                },
+                'cost': {
+                    'min': undefined,
+                    'max': undefined,
+                },
+            };
+            result.push ({
+                'info': market,
+                'id': id,
+                'symbol': symbol,
+                'base': base,
+                'quote': quote,
+                'baseId': baseId,
+                'quoteId': quoteId,
+                'maker': fee,
+                'taker': fee,
+                'limits': limits,
+                'precision': precision,
+            });
+        }
+        return result;
     }
 
     async fetchBalance (params = {}) {
@@ -129,7 +184,7 @@ module.exports = class btcmarkets extends Exchange {
             'id': market['id'],
             'timeWindow': this.timeframes[timeframe],
         };
-        if (typeof since !== 'undefined')
+        if (since !== undefined)
             request['since'] = since;
         let response = await this.webGetMarketBTCMarketsIdTickByTime (this.extend (request, params));
         return this.parseOHLCVs (response['ticks'], market, timeframe, since, limit);
@@ -150,16 +205,16 @@ module.exports = class btcmarkets extends Exchange {
         let symbol = undefined;
         if (market)
             symbol = market['symbol'];
-        let last = parseFloat (ticker['lastPrice']);
+        let last = this.safeFloat (ticker, 'lastPrice');
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
             'high': undefined,
             'low': undefined,
-            'bid': parseFloat (ticker['bestBid']),
+            'bid': this.safeFloat (ticker, 'bestBid'),
             'bidVolume': undefined,
-            'ask': parseFloat (ticker['bestAsk']),
+            'ask': this.safeFloat (ticker, 'bestAsk'),
             'askVolume': undefined,
             'vwap': undefined,
             'open': undefined,
@@ -169,7 +224,7 @@ module.exports = class btcmarkets extends Exchange {
             'change': undefined,
             'percentage': undefined,
             'average': undefined,
-            'baseVolume': parseFloat (ticker['volume24h']),
+            'baseVolume': this.safeFloat (ticker, 'volume24h'),
             'quoteVolume': undefined,
             'info': ticker,
         };
@@ -232,7 +287,7 @@ module.exports = class btcmarkets extends Exchange {
         };
     }
 
-    async cancelOrders (ids) {
+    async cancelOrders (ids, symbol = undefined, params = {}) {
         await this.loadMarkets ();
         for (let i = 0; i < ids.length; i++) {
             ids[i] = parseInt (ids[i]);
@@ -243,6 +298,26 @@ module.exports = class btcmarkets extends Exchange {
     async cancelOrder (id, symbol = undefined, params = {}) {
         await this.loadMarkets ();
         return await this.cancelOrders ([ id ]);
+    }
+
+    calculateFee (symbol, type, side, amount, price, takerOrMaker = 'taker', params = {}) {
+        let market = this.markets[symbol];
+        let rate = market[takerOrMaker];
+        let currency = undefined;
+        let cost = undefined;
+        if (market['quote'] === 'AUD') {
+            currency = market['quote'];
+            cost = parseFloat (this.costToPrecision (symbol, amount * price));
+        } else {
+            currency = market['base'];
+            cost = parseFloat (this.amountToPrecision (symbol, amount));
+        }
+        return {
+            'type': takerOrMaker,
+            'currency': currency,
+            'rate': rate,
+            'cost': parseFloat (this.feeToPrecision (symbol, rate * cost)),
+        };
     }
 
     parseMyTrade (trade, market) {
@@ -283,7 +358,7 @@ module.exports = class btcmarkets extends Exchange {
         let side = (order['orderSide'] === 'Bid') ? 'buy' : 'sell';
         let type = (order['ordertype'] === 'Limit') ? 'limit' : 'market';
         let timestamp = order['creationTime'];
-        if (!market) {
+        if (market === undefined) {
             market = this.market (order['instrument'] + '/' + order['currency']);
         }
         let status = 'open';
@@ -303,6 +378,7 @@ module.exports = class btcmarkets extends Exchange {
             'id': order['id'].toString (),
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
+            'lastTradeTimestamp': undefined,
             'symbol': market['symbol'],
             'type': type,
             'side': side,
@@ -331,16 +407,16 @@ module.exports = class btcmarkets extends Exchange {
         return this.parseOrder (order);
     }
 
-    async prepareHistoryRequest (market, since = undefined, limit = undefined) {
+    prepareHistoryRequest (market, since = undefined, limit = undefined) {
         let request = this.ordered ({
             'currency': market['quote'],
             'instrument': market['base'],
         });
-        if (typeof limit !== 'undefined')
+        if (limit !== undefined)
             request['limit'] = limit;
         else
             request['limit'] = 100;
-        if (typeof since !== 'undefined')
+        if (since !== undefined)
             request['since'] = since;
         else
             request['since'] = 0;
@@ -348,7 +424,7 @@ module.exports = class btcmarkets extends Exchange {
     }
 
     async fetchOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
-        if (!symbol)
+        if (symbol === undefined)
             throw new NotSupported (this.id + ': fetchOrders requires a `symbol` parameter.');
         await this.loadMarkets ();
         let market = this.market (symbol);
@@ -358,7 +434,7 @@ module.exports = class btcmarkets extends Exchange {
     }
 
     async fetchOpenOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
-        if (!symbol)
+        if (symbol === undefined)
             throw new NotSupported (this.id + ': fetchOpenOrders requires a `symbol` parameter.');
         await this.loadMarkets ();
         let market = this.market (symbol);
@@ -373,7 +449,7 @@ module.exports = class btcmarkets extends Exchange {
     }
 
     async fetchMyTrades (symbol = undefined, since = undefined, limit = undefined, params = {}) {
-        if (!symbol)
+        if (symbol === undefined)
             throw new NotSupported (this.id + ': fetchMyTrades requires a `symbol` parameter.');
         await this.loadMarkets ();
         let market = this.market (symbol);
@@ -413,11 +489,10 @@ module.exports = class btcmarkets extends Exchange {
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 
-    handleErrors (code, reason, url, method, headers, body) {
+    handleErrors (code, reason, url, method, headers, body, response) {
         if (body.length < 2)
             return; // fallback to default error handler
         if (body[0] === '{') {
-            let response = JSON.parse (body);
             if ('success' in response) {
                 if (!response['success']) {
                     let error = this.safeString (response, 'errorCode');
@@ -431,10 +506,5 @@ module.exports = class btcmarkets extends Exchange {
                 }
             }
         }
-    }
-
-    async request (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
-        let response = await this.fetch2 (path, api, method, params, headers, body);
-        return response;
     }
 };

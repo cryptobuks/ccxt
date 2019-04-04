@@ -14,7 +14,7 @@ const asTable   = require ('as-table')
     , ansi      = require ('ansicolor').nice
     , fs        = require ('fs')
     , ccxt      = require ('../../ccxt.js')
-    , countries = require ('../../countries.js')
+    , countries = require ('../../build/countries.js')
     , chai      = require ('chai')
     , expect    = chai.expect
     , assert    = chai.assert
@@ -44,7 +44,14 @@ let proxies = [
 
 const enableRateLimit = true
 
+const { Agent } = require ('https')
+
+const agent = new Agent ({
+    ecdhCurve: 'auto',
+})
+
 const exchange = new (ccxt)[exchangeId] ({
+    agent,
     verbose,
     enableRateLimit,
     debug,
@@ -90,26 +97,31 @@ if (settings && settings.skip) {
 //-----------------------------------------------------------------------------
 
 let countryName = function (code) {
-    return ((typeof countries[code] !== 'undefined') ? countries[code] : code)
+    return ((countries[code] !== undefined) ? countries[code] : code)
 }
 
 //-----------------------------------------------------------------------------
 
 let testSymbol = async (exchange, symbol) => {
 
-    // await tests['fetchMarkets']    (exchange)
-    // await tests['fetchCurrencies'] (exchange)
-    // process.exit ()
+    if (exchange.id !== 'coinmarketcap') {
+        await tests['fetchMarkets']    (exchange)
+        await tests['fetchCurrencies'] (exchange)
+    }
 
-    await tests['fetchTicker']     (exchange, symbol)
-    await tests['fetchTickers']    (exchange, symbol)
-    await tests['fetchOHLCV']      (exchange, symbol)
-    await tests['fetchTrades']     (exchange, symbol)
+    await tests['fetchTicker']  (exchange, symbol)
+    await tests['fetchTickers'] (exchange, symbol)
+    await tests['fetchOHLCV']   (exchange, symbol)
+    await tests['fetchTrades']  (exchange, symbol)
 
     if (exchange.id === 'coinmarketcap') {
 
         log (await exchange.fetchTickers ())
         log (await exchange.fetchGlobal  ())
+
+    } else if (exchange.id === 'coinbase') {
+
+        // do nothing for now
 
     } else {
 
@@ -134,6 +146,7 @@ let loadExchange = async exchange => {
     let symbols = [
         'BTC/CNY',
         'BTC/USD',
+        'BTC/USDT',
         'BTC/EUR',
         'BTC/ETH',
         'ETH/BTC',
@@ -173,12 +186,14 @@ let testExchange = async exchange => {
     let symbol = exchange.symbols[0]
     let symbols = [
         'BTC/USD',
+        'BTC/USDT',
         'BTC/CNY',
         'BTC/EUR',
         'BTC/ETH',
         'ETH/BTC',
         'BTC/JPY',
         'LTC/BTC',
+        'ZRX/WETH',
     ]
     for (let s in symbols) {
         if (exchange.symbols.includes (symbols[s])) {
@@ -202,16 +217,30 @@ let testExchange = async exchange => {
     if (!exchange.apiKey || (exchange.apiKey.length < 1))
         return true
 
+    exchange.checkRequiredCredentials ()
+
     // move to testnet/sandbox if possible before accessing the balance if possible
-    if (exchange.urls['test'])
-        exchange.urls['api'] = exchange.urls['test']
+    // if (exchange.urls['test'])
+    //    exchange.urls['api'] = exchange.urls['test']
 
     let balance = await tests['fetchBalance'] (exchange)
+
+    await tests['fetchFundingFees']  (exchange)
+    await tests['fetchTradingFees']  (exchange)
 
     await tests['fetchOrders']       (exchange, symbol)
     await tests['fetchOpenOrders']   (exchange, symbol)
     await tests['fetchClosedOrders'] (exchange, symbol)
     await tests['fetchMyTrades']     (exchange, symbol)
+
+    if ('fetchLedger' in tests) {
+        await tests['fetchLedger'] (exchange)
+    }
+
+    // const code = exchange.markets[symbol]['quote']
+    // await tests['fetchTransactions'] (exchange, code)
+    // await tests['fetchDeposits']     (exchange, code)
+    // await tests['fetchWithdrawals']  (exchange, code)
 
     if (exchange.extendedTest) {
 
@@ -295,6 +324,11 @@ let tryAllProxies = async function (exchange, proxies) {
         try {
 
             exchange.proxy = proxies[currentProxy]
+
+            // add random origin for proxies
+            if (exchange.proxy.length > 0)
+                exchange.origin = exchange.uuid ()
+
             await testExchange (exchange)
             break
 

@@ -12,7 +12,7 @@ module.exports = class fybse extends Exchange {
         return this.deepExtend (super.describe (), {
             'id': 'fybse',
             'name': 'FYB-SE',
-            'countries': 'SE', // Sweden
+            'countries': [ 'SE' ], // Sweden
             'has': {
                 'CORS': false,
             },
@@ -21,7 +21,7 @@ module.exports = class fybse extends Exchange {
                 'logo': 'https://user-images.githubusercontent.com/1294454/27766512-31019772-5edb-11e7-8241-2e675e6797f1.jpg',
                 'api': 'https://www.fybse.se/api/SEK',
                 'www': 'https://www.fybse.se',
-                'doc': 'http://docs.fyb.apiary.io',
+                'doc': 'https://fyb.docs.apiary.io',
             },
             'api': {
                 'public': {
@@ -83,18 +83,18 @@ module.exports = class fybse extends Exchange {
         let last = undefined;
         let volume = undefined;
         if ('last' in ticker)
-            last = parseFloat (ticker['last']);
+            last = this.safeFloat (ticker, 'last');
         if ('vol' in ticker)
-            volume = parseFloat (ticker['vol']);
+            volume = this.safeFloat (ticker, 'vol');
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
             'high': undefined,
             'low': undefined,
-            'bid': parseFloat (ticker['bid']),
+            'bid': this.safeFloat (ticker, 'bid'),
             'bidVolume': undefined,
-            'ask': parseFloat (ticker['ask']),
+            'ask': this.safeFloat (ticker, 'ask'),
             'askVolume': undefined,
             'vwap': undefined,
             'open': undefined,
@@ -121,8 +121,8 @@ module.exports = class fybse extends Exchange {
             'symbol': market['symbol'],
             'type': undefined,
             'side': undefined,
-            'price': parseFloat (trade['price']),
-            'amount': parseFloat (trade['amount']),
+            'price': this.safeFloat (trade, 'price'),
+            'amount': this.safeFloat (trade, 'amount'),
         };
     }
 

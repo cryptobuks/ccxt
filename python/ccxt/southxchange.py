@@ -14,11 +14,11 @@ class southxchange (Exchange):
         return self.deep_extend(super(southxchange, self).describe(), {
             'id': 'southxchange',
             'name': 'SouthXchange',
-            'countries': 'AR',  # Argentina
+            'countries': ['AR'],  # Argentina
             'rateLimit': 1000,
             'has': {
                 'CORS': True,
-                'createDepositAddres': True,
+                'createDepositAddress': True,
                 'fetchOpenOrders': True,
                 'fetchTickers': True,
                 'withdraw': True,
@@ -59,15 +59,21 @@ class southxchange (Exchange):
                     'taker': 0.2 / 100,
                 },
             },
+            'commonCurrencies': {
+                'SMT': 'SmartNode',
+                'MTC': 'Marinecoin',
+            },
         })
 
-    def fetch_markets(self):
+    def fetch_markets(self, params={}):
         markets = self.publicGetMarkets()
         result = []
         for p in range(0, len(markets)):
             market = markets[p]
-            base = market[0]
-            quote = market[1]
+            baseId = market[0]
+            quoteId = market[1]
+            base = self.common_currency_code(baseId)
+            quote = self.common_currency_code(quoteId)
             symbol = base + '/' + quote
             id = symbol
             result.append({
@@ -75,6 +81,9 @@ class southxchange (Exchange):
                 'symbol': symbol,
                 'base': base,
                 'quote': quote,
+                'baseId': baseId,
+                'quoteId': quoteId,
+                'active': None,
                 'info': market,
             })
         return result
@@ -87,17 +96,21 @@ class southxchange (Exchange):
         result = {'info': balances}
         for b in range(0, len(balances)):
             balance = balances[b]
-            currency = balance['Currency']
-            uppercase = currency.upper()
+            currencyId = balance['Currency']
+            uppercase = currencyId.upper()
+            currency = self.currencies_by_id[uppercase]
+            code = currency['code']
             free = float(balance['Available'])
-            used = float(balance['Unconfirmed'])
-            total = self.sum(free, used)
+            deposited = float(balance['Deposited'])
+            unconfirmed = float(balance['Unconfirmed'])
+            total = self.sum(deposited, unconfirmed)
+            used = total - free
             account = {
                 'free': free,
                 'used': used,
                 'total': total,
             }
-            result[uppercase] = account
+            result[code] = account
         return self.parse_balance(result)
 
     def fetch_order_book(self, symbol, limit=None, params={}):
@@ -128,8 +141,8 @@ class southxchange (Exchange):
             'close': last,
             'last': last,
             'previousClose': None,
-            'change': self.safe_float(ticker, 'Variation24Hr'),
-            'percentage': None,
+            'change': None,
+            'percentage': self.safe_float(ticker, 'Variation24Hr'),
             'average': None,
             'baseVolume': self.safe_float(ticker, 'Volume24Hr'),
             'quoteVolume': None,
@@ -188,7 +201,7 @@ class southxchange (Exchange):
         status = 'open'
         symbol = order['ListingCurrency'] + '/' + order['ReferenceCurrency']
         timestamp = None
-        price = float(order['LimitPrice'])
+        price = self.safe_float(order, 'LimitPrice')
         amount = self.safe_float(order, 'OriginalAmount')
         remaining = self.safe_float(order, 'Amount')
         filled = None
@@ -203,9 +216,10 @@ class southxchange (Exchange):
             'id': str(order['Code']),
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
+            'lastTradeTimestamp': None,
             'symbol': symbol,
-            'type': orderType,
-            'side': None,
+            'type': 'limit',
+            'side': orderType,
             'price': price,
             'amount': amount,
             'cost': cost,
@@ -264,14 +278,15 @@ class southxchange (Exchange):
             'currency': code,
             'address': address,
             'tag': tag,
-            'status': 'ok',
             'info': response,
         }
 
-    def withdraw(self, currency, amount, address, tag=None, params={}):
+    def withdraw(self, code, amount, address, tag=None, params={}):
         self.check_address(address)
+        self.load_markets()
+        currency = self.currency(code)
         request = {
-            'currency': currency,
+            'currency': currency['id'],
             'address': address,
             'amount': amount,
         }
